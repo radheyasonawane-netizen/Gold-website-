@@ -1,0 +1,156 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Brand palette
+ *   Primary Pink  #F5DCE5   White #FFFFFF   Champagne Gold #C7A35D
+ *   Soft Pink     #FAF3F5   Charcoal #352830
+ * Champagne gold on white is ~2.4:1, so it is used for fills, rules and large display numerals;
+ * text-sized gold uses --gold-deep (#8A6A2C, ≈ 5.2:1 on white) to meet WCAG AA.
+ */
+:root {
+  --pink: #f5dce5;
+  --soft-pink: #faf3f5;
+  --white: #ffffff;
+  --gold: #c7a35d;
+  --gold-deep: #8a6a2c;
+  --gold-light: #ead9b4;
+  --charcoal: #352830;
+
+  --background: #fffdfd;
+  --foreground: var(--charcoal);
+  --card: var(--white);
+  --card-foreground: var(--charcoal);
+  --primary: var(--charcoal);
+  --primary-foreground: var(--white);
+  --secondary: var(--soft-pink);
+  --secondary-foreground: var(--charcoal);
+  --muted: var(--soft-pink);
+  --muted-foreground: #74606a;
+  --accent: var(--soft-pink);
+  --accent-foreground: var(--charcoal);
+  --border: #efdfe5;
+  --input: #e8d3db;
+  --ring: var(--gold);
+
+  --up: #23704f;
+  --down: #b03a4a;
+  --warn: #9a5b12;
+
+  --chart-line: #a87b2a; /* validated: L-band, chroma ≥ .1, ≥3:1 vs white */
+  --chart-fill: #c7a35d;
+  --chart-grid: #f1e4e9;
+  --radius: 1rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-pink: var(--pink);
+  --color-soft-pink: var(--soft-pink);
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-gold-light: var(--gold-light);
+  --color-charcoal: var(--charcoal);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-sm: calc(var(--radius) - 8px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: var(--pink);
+    color: var(--charcoal);
+  }
+  :focus-visible {
+    outline-color: var(--gold);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+  }
+  .num {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  .text-gold-gradient {
+    background: linear-gradient(180deg, #d9bd80 0%, #b8924a 55%, #8a6a2c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hairline-gold {
+    background: linear-gradient(90deg, transparent, var(--gold) 20%, var(--gold) 80%, transparent);
+  }
+  .hero-wash {
+    background:
+      radial-gradient(1200px 520px at 85% -10%, rgba(199, 163, 93, 0.18), transparent 60%),
+      radial-gradient(900px 600px at -10% 10%, #f5dce5 0%, transparent 65%),
+      linear-gradient(180deg, #faf3f5 0%, #fffdfd 100%);
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+  }
+  .live-dot {
+    position: relative;
+  }
+  .live-dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 9999px;
+    background: currentColor;
+    opacity: 0.25;
+    animation: live-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+  @keyframes live-ping {
+    75%,
+    100% {
+      transform: scale(2);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot::after {
+      animation: none;
+    }
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
