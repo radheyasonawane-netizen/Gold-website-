@@ -11,7 +11,6 @@ import type { FetchStatus } from "@/lib/types";
  */
 export function freshnessOf(status: FetchStatus | undefined, sourceUpdatedAt: string | null | undefined, now: number, liveWindowMs = 5 * 60_000, liveLabel = "Live") {
   if (!status || status === "error") return { label: "Unavailable", variant: "error" as const };
-  if (status === "unconfigured") return { label: "Not connected", variant: "soft" as const };
   if (status === "stale") return { label: "Stale · last good", variant: "stale" as const };
   const age = sourceUpdatedAt ? now - Date.parse(sourceUpdatedAt) : Infinity;
   if (age <= liveWindowMs) return { label: liveLabel, variant: "live" as const };

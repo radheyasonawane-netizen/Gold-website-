@@ -1,45 +1,29 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { cached, __clearCache } from "@/lib/server/cache";
-import { parseQuote, pickGoldTen } from "@/lib/server/groww";
 
-// Header and rows copied from Groww's instrument.csv (17 Nov 2026), plus one expired row.
-const CSV = [
-  "exchange,exchange_token,trading_symbol,groww_symbol,name,instrument_type,segment,series,isin,underlying_symbol,underlying_exchange_token,expiry_date,strike_price,lot_size,tick_size,freeze_quantity,is_reserved,buy_allowed,sell_allowed,internal_trading_symbol,is_intraday",
-  "MCX,578629,GOLDTEN31DEC26FUT,MCX-GOLDTEN-31Dec26-FUT,,FUT,COMMODITY,,MCX_GOLDTEN31DEC26FUT,GOLDTEN,,2026-12-31,0,1,100.0,1000,,1,1,GOLDTEN31DEC26FUT,0",
-  "MCX,574842,GOLDTEN30NOV26FUT,MCX-GOLDTEN-30Nov26-FUT,,FUT,COMMODITY,,MCX_GOLDTEN30NOV26FUT,GOLDTEN,,2026-11-30,0,1,100.0,1000,,1,1,GOLDTEN30NOV26FUT,0",
-  "MCX,570001,GOLDTEN31OCT26FUT,MCX-GOLDTEN-31Oct26-FUT,,FUT,COMMODITY,,MCX_GOLDTEN31OCT26FUT,GOLDTEN,,2026-10-31,0,1,100.0,1000,,1,1,GOLDTEN31OCT26FUT,0",
-  "MCX,575011,GOLDM04DEC26FUT,MCX-GOLDM-04Dec26-FUT,,FUT,COMMODITY,,MCX_GOLDM04DEC26FUT,GOLDM,,2026-12-04,0,10,100.0,1000,,1,1,GOLDM04DEC26FUT,0",
-  "NSE,1,GOLDBEES,NSE-GOLDBEES,GOLDBEES,EQ,CASH,EQ,INF204KB17I5,,,,0,1,0.01,0,,1,1,GOLDBEES,1",
-].join("\n");
+import { parseOroPocket } from "@/lib/server/oroPocket";
 
-describe("Gold Ten contract selection", () => {
-  it("picks the nearest unexpired GOLDTEN future", () => {
-    expect(pickGoldTen(CSV, "2026-11-17")).toEqual({ tradingSymbol: "GOLDTEN30NOV26FUT", expiry: "2026-11-30" });
+describe("OroPocket public prices", () => {
+  const sample = {
+    statusCode: 200,
+    message: "Asset prices retrieved successfully",
+    data: {
+      gold: { buy: 14032.27, sell: 13559.46, gst: 420.97, currency: "INR", unit: "gram", change24h: { buy: 0.13, sell: -0.16 } },
+      silver: { buy: 178.52, sell: 168.77, gst: 5.36, currency: "INR", unit: "gram", change24h: { buy: 0.88, sell: 0.56 } },
+      timestamp: "2026-11-17T05:50:00.166Z",
+    },
+  };
+  it("parses the observed response and derives the you-pay price", () => {
+    const q = parseOroPocket(sample);
+    expect(q.gold.finalBuy).toBeCloseTo(14453.24, 6);
+    expect(q.gold.gst / q.gold.buy).toBeCloseTo(0.03, 4);
+    expect(q.gold.change24hSellPct).toBe(-0.16);
+    expect(q.silver?.finalBuy).toBeCloseTo(183.88, 6);
+    expect(q.goldFineness).toBe(0.999);
   });
-  it("still uses the contract on its expiry day, then rolls", () => {
-    expect(pickGoldTen(CSV, "2026-11-30").tradingSymbol).toBe("GOLDTEN30NOV26FUT");
-    expect(pickGoldTen(CSV, "2026-12-01").tradingSymbol).toBe("GOLDTEN31DEC26FUT");
-  });
-  it("ignores other gold contracts and fails when none is live", () => {
-    expect(() => pickGoldTen(CSV, "2027-01-01")).toThrow(/No live MCX Gold Ten/);
-  });
-});
-
-describe("Groww quote parsing", () => {
-  // Shape from Groww's live-data/quote docs; numbers are test inputs, not market data.
-  const ok = { status: "SUCCESS", payload: { last_price: 135335, day_change: 75, day_change_perc: 0.06, ohlc: { open: 135200, high: 135600, low: 135100, close: 135260 }, last_trade_time: 1794895504000, volume: 1234, open_interest: 5678 } };
-  it("passes Groww's values through unchanged", () => {
-    expect(parseQuote(ok)).toEqual({ lastPrice: 135335, dayChange: 75, dayChangePct: 0.06, open: 135200, high: 135600, low: 135100, close: 135260, lastTradeTime: 1794895504000, volume: 1234, openInterest: 5678 });
-  });
-  it("rejects failures and missing prices", () => {
-    expect(() => parseQuote({ status: "FAILURE", error: { code: "403", message: "Access forbidden for this request." } })).toThrow(/Access forbidden/);
-    expect(() => parseQuote({ status: "SUCCESS", payload: { day_change: 1 } })).toThrow(/no last price/);
-  });
-  it("tolerates missing optional fields", () => {
-    const q = parseQuote({ status: "SUCCESS", payload: { last_price: 135000 } });
-    expect(q.lastPrice).toBe(135000);
-    expect(q.open).toBeNull();
-    expect(q.dayChange).toBeNull();
+  it("rejects error envelopes and unit changes", () => {
+    expect(() => parseOroPocket({ statusCode: 429, message: "Too many requests" })).toThrow();
+    expect(() => parseOroPocket({ ...sample, data: { ...sample.data, gold: { ...sample.data.gold, unit: "10 gram" } } })).toThrow(/unit/);
   });
 });
 
