@@ -43,6 +43,21 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     const age = Date.now() - Date.parse(market.goldUsd.updatedAt);
     return `24K ₹${Math.round(d.per10g24k999).toLocaleString("en-IN")}/10g · spot age ${Math.round(age / 1000)}s · FX diff ${(d.fxCrossCheckDiff * 100).toFixed(3)}%`;
   });
+  await step("OroPocket: server values match the raw public API", async () => {
+    const raw = await (await fetch("https://api.oropocket.com/public/prices")).json(); // Node fetch: honours HTTPS_PROXY with NODE_USE_ENV_PROXY=1
+    const o = market.oroPocket;
+    assert(o, "oroPocket missing from /api/market");
+    const g = raw.data.gold;
+    // Server caches 5 min; OroPocket refreshes ~30 min, so values normally match exactly.
+    if (raw.data.timestamp === o.timestamp) {
+      assert(o.gold.buy === g.buy && o.gold.sell === g.sell && Math.abs(o.gold.gst - g.gst) < 1e-9, "gold buy/sell/gst mismatch");
+    }
+    assert(Math.abs(o.gold.finalBuy - (o.gold.buy + o.gold.gst)) < 1e-9, "finalBuy != buy + gst");
+    assert(Math.abs(o.gold.gst / o.gold.buy - 0.03) < 0.0005, "GST is not 3% of buy");
+    const prem = o.gold.buy / (market.derived.finePerGram * 0.999) - 1;
+    assert(Math.abs(prem - market.derived.oroPremiumOverParity) < 1e-12, "premium formula mismatch");
+    return `buy ₹${g.buy}/g + GST ₹${g.gst} = ₹${(g.buy + g.gst).toFixed(2)} · sell ₹${g.sell} · rate time ${raw.data.timestamp} · premium ${(prem * 100).toFixed(2)}%`;
+  });
   await step("GET /api/history serves monthly data with attribution", async () => {
     const r = await req.get(`${BASE}/api/history?range=10Y`);
     const h = await r.json();
@@ -96,7 +111,10 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     assert(/Live|Delayed|Stale/.test(t) && /ago/.test(t), `badge "${t}"`);
     await page.waitForSelector("[data-testid=source-list] li");
     const txt = await page.textContent("#methodology");
-    for (const s of ["gold-api.com", "European Central Bank", "World Bank"]) assert(txt.includes(s), `missing ${s}`);
+    for (const s of ["gold-api.com", "European Central Bank", "World Bank", "OroPocket"]) assert(txt.includes(s), `missing ${s}`);
+    const oroUi = parseInr(await page.textContent("[data-testid=oro-final]"));
+    const m2 = await (await req.get(`${BASE}/api/market`)).json();
+    assert(Math.abs(oroUi - m2.oroPocket.gold.finalBuy) < 0.01, `OroPocket card ${oroUi} vs ${m2.oroPocket.gold.finalBuy}`);
     return t.trim();
   });
   await step("history chart: range switch, hover tooltip, table view", async () => {
@@ -126,7 +144,7 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     const metal = m.derived.finePerGram * 20 * 0.999;
     const expected = metal * 1.06 * 1.1 * 1.03;
     assert(Math.abs(total - expected) / expected < 0.002, `total ${total} vs expected ${Math.round(expected)}`);
-    await page.getByRole("radio", { name: "Rate I was quoted" }).click();
+    await page.getByRole("radio", { name: "My quote" }).click();
     await page.fill("#custom-rate", "135000");
     await page.fill("#making", "0");
     const t2 = parseInr(await page.textContent("[data-testid=calc-total]"));
@@ -145,7 +163,7 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     await page.getByRole("button", { name: "Add to comparison" }).click();
     await page.getByRole("button", { name: "Try examples" }).click();
     const rowsSel = "[data-testid=seller-table] [data-testid=seller-row]";
-    await page.waitForFunction((s) => document.querySelectorAll(s).length === 6, rowsSel);
+    await page.waitForFunction((s) => document.querySelectorAll(s).length === 7, rowsSel);
     const per10 = async () => (await page.locator(`${rowsSel} td:nth-child(10)`).allTextContents()).map(parseInr);
     const asc = await per10();
     assert(asc.every((v, i) => i === 0 || v >= asc[i - 1]), `not ascending ${asc}`);
@@ -162,7 +180,8 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     await page.getByRole("button", { name: /Remove Test Jeweller/ }).first().click();
     await page.fill("input[aria-label='Search seller or product']", "");
     const left = await page.locator(rowsSel).count();
-    assert(left === 5, `left ${left}`);
+    assert(left === 6, `left ${left}`);
+    assert((await page.locator(`${rowsSel} >> text=Live API`).count()) === 1, "OroPocket live row missing");
     const illus = await page.locator(`${rowsSel} >> text=Illustrative`).count();
     assert(illus === 5, "examples must be labelled Illustrative");
     return `sorted asc/desc, filtered (bars=${bars}), 5 labelled examples`;

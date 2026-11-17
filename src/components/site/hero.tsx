@@ -51,6 +51,12 @@ export function Hero() {
                     </span>
                   ) : null}
                 </div>
+                {data!.oroPocket ? (
+                  <p className="mt-3 rounded-2xl bg-soft-pink px-3 py-2 text-[13px] text-charcoal num" data-testid="hero-retail">
+                    Retail check: OroPocket sells 24K at <b>{fmtInr(data!.oroPocket.gold.finalBuy * 10)}</b> per 10 g incl. GST
+                    {d.oroPremiumOverParity !== null ? <span className="text-muted-foreground"> · {fmtPct(d.oroPremiumOverParity, 1)} over parity before GST</span> : null}
+                  </p>
+                ) : null}
                 <p className="mt-3 flex items-start gap-2 text-[13px] leading-relaxed text-muted-foreground">
                   <Info className="mt-0.5 size-3.5 shrink-0 text-gold-deep" aria-hidden />
                   <span>

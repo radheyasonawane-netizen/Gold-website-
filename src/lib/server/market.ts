@@ -1,6 +1,7 @@
 import "server-only";
 import { getSpot } from "./goldApi";
 import { getUsdInr } from "./fx";
+import { getOroPocket } from "./oroPocket";
 import { getTicks, recordTick } from "./ticks";
 import type { CacheResult } from "./cache";
 import type { MarketResponse, SourceId, SourceStatus } from "@/lib/types";
@@ -18,12 +19,13 @@ export function toStatus<T>(id: SourceId, r: CacheResult<T>, sourceUpdatedAt: st
 }
 
 export async function getMarket(): Promise<MarketResponse> {
-  const [goldUsd, goldInr, silverUsd, fx] = await Promise.all([getSpot("XAU", "USD"), getSpot("XAU", "INR"), getSpot("XAG", "USD"), getUsdInr()]);
+  const [goldUsd, goldInr, silverUsd, fx, oro] = await Promise.all([getSpot("XAU", "USD"), getSpot("XAU", "INR"), getSpot("XAG", "USD"), getUsdInr(), getOroPocket()]);
 
   const gU = goldUsd.value,
     gI = goldInr.value,
     sU = silverUsd.value,
-    f = fx.value;
+    f = fx.value,
+    o = oro.value;
 
   if (gU && !goldUsd.stale) recordTick({ t: Date.parse(gU.updatedAt), usdPerOz: gU.pricePerOz, inrPerOz: gI?.pricePerOz ?? null });
 
@@ -40,6 +42,7 @@ export async function getMarket(): Promise<MarketResponse> {
       per1g24k999: finePerGram * 0.999,
       silverPerKg999: sU && usdInrForSilver ? sU.pricePerOz * usdInrForSilver * TROY_OUNCES_PER_KG * 0.999 : null,
       fxCrossCheckDiff: gI && gU && f ? gI.pricePerOz / (gU.pricePerOz * f.rate) - 1 : null,
+      oroPremiumOverParity: o ? o.gold.buy / (finePerGram * o.goldFineness) - 1 : null,
     };
   }
 
@@ -52,12 +55,14 @@ export async function getMarket(): Promise<MarketResponse> {
     goldInr: gI,
     silverUsd: sU,
     fx: f,
+    oroPocket: o,
     derived,
     ticks,
     ticksSince: since ? new Date(since).toISOString() : null,
     sources: [
       mergeStatus("gold-api", [toStatus("gold-api", goldUsd, gU?.updatedAt ?? null), toStatus("gold-api", goldInr, gI?.updatedAt ?? null), toStatus("gold-api", silverUsd, sU?.updatedAt ?? null)], newestSpot),
       toStatus("ecb-frankfurter", fx, f ? `${f.date}T14:15:00Z` : null),
+      toStatus("oropocket", oro, o?.timestamp ?? null),
       { id: "server-ticks", status: ticks.length ? "live" : "error", fetchedAt: ticks.length ? new Date(ticks.at(-1)!.t).toISOString() : null, sourceUpdatedAt: ticks.length ? new Date(ticks.at(-1)!.t).toISOString() : null },
     ],
   };

@@ -52,7 +52,7 @@ function loadQuotes(): QuoteRow[] {
 }
 function saveQuotes(q: QuoteRow[]) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(q.filter((x) => x.origin !== "feed")));
+    localStorage.setItem(LS_KEY, JSON.stringify(q.filter((x) => x.origin !== "feed" && x.origin !== "api")));
   } catch {
     /* storage unavailable */
   }
@@ -86,7 +86,11 @@ export function SellerComparison() {
     const pc = PURITIES.reduce((best, p) => (Math.abs(p.fineness - f.fineness) < Math.abs(best.fineness - f.fineness) ? p : best)).code;
     return { id: `feed-${i}`, seller: f.seller, product: f.product, type: /bar/i.test(f.product) ? "bar" : /digital/i.test(f.product) ? "digital" : "coin", grams: f.grams, purity: pc, fineness: f.fineness, price: f.price, includesGst: f.includesGst, url: f.url, at: f.updatedAt, origin: "feed" };
   });
-  const all: Row[] = [...feedRows, ...quotes].map((r) => ({ ...r, a: ref ? analyseSellerQuote({ price: r.price, grams: r.grams, fineness: r.fineness, includesGst: r.includesGst, gstRate: DEFAULT_GST_RATE }, ref) : null }));
+  const oro = data?.oroPocket;
+  const apiRows: QuoteRow[] = oro
+    ? [{ id: "api-oropocket", seller: "OroPocket", product: "Digital gold, 10 g (24K 99.9)", type: "digital", grams: 10, purity: "999", fineness: oro.goldFineness, price: oro.gold.finalBuy * 10, includesGst: true, url: "https://oropocket.com/", at: oro.timestamp, origin: "api" }]
+    : [];
+  const all: Row[] = [...apiRows, ...feedRows, ...quotes].map((r) => ({ ...r, a: ref ? analyseSellerQuote({ price: r.price, grams: r.grams, fineness: r.fineness, includesGst: r.includesGst, gstRate: DEFAULT_GST_RATE }, ref) : null }));
   const rows = sortRows(filterRows(all, q, type), sort.key, sort.dir);
   const lowest = rows.reduce<number | null>((m, r) => (r.a && (m === null || r.a.per10g999 < m) ? r.a.per10g999 : m), null);
   const hasExamples = quotes.some((x) => x.origin === "example");
@@ -125,6 +129,10 @@ export function SellerComparison() {
       <Badge variant="stale">
         <FlaskConical /> Illustrative
       </Badge>
+    ) : r.origin === "api" ? (
+      <Badge variant="live">
+        <Rss /> Live API · {fmtAgo(r.at, now)}
+      </Badge>
     ) : r.origin === "feed" ? (
       <Badge variant="live">
         <Rss /> Feed · {fmtAgo(r.at, now)}
@@ -152,7 +160,15 @@ export function SellerComparison() {
                 </>
               ) : (
                 <>
-                  <b className="text-charcoal">No live seller prices.</b> We found no licensed public feed, and we don’t scrape retailer sites. Add the quotes you see, or connect a licensed feed via <code className="rounded bg-soft-pink px-1">SELLER_FEED_URL</code>.
+                  {oro ? (
+                    <>
+                      <b className="text-charcoal">OroPocket’s rate is live</b> from its public price API. Other sellers publish no feed we can use, and we don’t scrape their sites, so add the quotes you see or connect a licensed feed via <code className="rounded bg-soft-pink px-1">SELLER_FEED_URL</code>.
+                    </>
+                  ) : (
+                    <>
+                      <b className="text-charcoal">No live seller prices right now.</b> OroPocket’s API didn’t respond. Add the quotes you see, or connect a licensed feed via <code className="rounded bg-soft-pink px-1">SELLER_FEED_URL</code>.
+                    </>
+                  )}
                 </>
               )}
             </p>
@@ -261,7 +277,7 @@ export function SellerComparison() {
                         <TableCell className="text-right font-semibold">{r.a ? fmtInr(r.a.per10g999) : "—"}</TableCell>
                         <TableCell className="text-right">{r.a && lowest !== null ? r.a.per10g999 === lowest ? <Badge variant="gold">Lowest</Badge> : <span className="text-muted-foreground">+{fmtInr(r.a.per10g999 - lowest)}</span> : "—"}</TableCell>
                         <TableCell>
-                          {r.origin !== "feed" ? (
+                          {r.origin !== "feed" && r.origin !== "api" ? (
                             <Button variant="ghost" size="icon" className="size-8" aria-label={`Remove ${r.seller} ${r.product}`} onClick={() => update(quotes.filter((x) => x.id !== r.id))}>
                               <Trash2 className="size-4" />
                             </Button>
@@ -309,7 +325,7 @@ export function SellerComparison() {
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       {originBadge(r)}
-                      {r.origin !== "feed" ? (
+                      {r.origin !== "feed" && r.origin !== "api" ? (
                         <Button variant="ghost" size="sm" aria-label={`Remove ${r.seller} ${r.product}`} onClick={() => update(quotes.filter((x) => x.id !== r.id))}>
                           <Trash2 /> Remove
                         </Button>

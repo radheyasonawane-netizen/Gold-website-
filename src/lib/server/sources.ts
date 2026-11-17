@@ -56,6 +56,16 @@ export const SOURCES: Record<SourceInfo["id"], SourceInfo> = {
     updateFrequency: "Whenever a visitor’s request triggers a fresh spot fetch (≤ every 30 s).",
     attribution: "Intraday: recorded from gold-api.com",
   },
+  oropocket: {
+    id: "oropocket",
+    name: "OroPocket published rates",
+    provider: "OroPocket (api.oropocket.com/public/prices)",
+    url: "https://oropocket.com/",
+    represents: "OroPocket’s own buy (excl. GST) and sell rates per gram for 24K 99.9% digital gold (Augmont-sourced) and 999 silver. A real Indian retail price, not a market feed.",
+    licence: "Keyless public endpoint (CORS open, 10 requests/min). Not covered by OroPocket’s developer docs; no explicit reuse licence found. Documented alternative: /partner/prices with a sandbox key.",
+    updateFrequency: "Observed every ~5 min (docs say up to 30 min); we cache 2 min.",
+    attribution: "Retail rates: OroPocket",
+  },
   "seller-feed": {
     id: "seller-feed",
     name: "Licensed seller price feed",

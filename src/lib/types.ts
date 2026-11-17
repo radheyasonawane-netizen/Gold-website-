@@ -1,6 +1,6 @@
 /** Shared API contracts between the route handlers and the client UI. */
 
-export type SourceId = "gold-api" | "gold-api-history" | "ecb-frankfurter" | "world-bank" | "server-ticks" | "seller-feed";
+export type SourceId = "gold-api" | "gold-api-history" | "ecb-frankfurter" | "world-bank" | "server-ticks" | "seller-feed" | "oropocket";
 
 export interface SourceInfo {
   id: SourceId;
@@ -51,6 +51,28 @@ export interface FxQuote {
   provider: "ECB";
 }
 
+/** One metal from OroPocket's published rates, ₹ per gram. */
+export interface OroMetalQuote {
+  /** Buy rate excluding GST. */
+  buy: number;
+  /** Sell-back rate (no GST on sells). */
+  sell: number;
+  /** GST amount per gram on a buy (3%). */
+  gst: number;
+  /** buy + gst: what a customer pays per gram. */
+  finalBuy: number;
+  change24hBuyPct: number | null;
+  change24hSellPct: number | null;
+}
+
+export interface OroPocketQuote {
+  gold: OroMetalQuote;
+  silver: OroMetalQuote | null;
+  timestamp: string;
+  /** OroPocket states its gold is 24K 99.9%. */
+  goldFineness: number;
+}
+
 export interface Tick {
   t: number; // epoch ms (source updatedAt)
   usdPerOz: number;
@@ -63,6 +85,8 @@ export interface MarketResponse {
   goldInr: SpotQuote | null;
   silverUsd: SpotQuote | null;
   fx: FxQuote | null;
+  /** OroPocket retail rates (a real Indian seller), or null if unavailable. */
+  oroPocket: OroPocketQuote | null;
   /** Derived values (computed server-side, documented in METHODOLOGY). Null if inputs missing. */
   derived: {
     /** Which USD/INR was used: gold-api's own INR quote or ECB cross. */
@@ -74,6 +98,8 @@ export interface MarketResponse {
     silverPerKg999: number | null;
     /** Cross-check: gold-api INR quote vs USD×ECB. Fraction. */
     fxCrossCheckDiff: number | null;
+    /** OroPocket buy (ex-GST) vs spot parity for the same 999 gold. Fraction. */
+    oroPremiumOverParity: number | null;
   } | null;
   ticks: Tick[];
   ticksSince: string | null;

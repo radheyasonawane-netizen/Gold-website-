@@ -25,6 +25,8 @@ const FORMULAS = [
   ["Indian landed estimate", "parity × (1 + customs duty) × 1.03 GST"],
   ["Seller markup", "final ÷ 1.03 − fine rate × grams × purity"],
   ["Per 10 g (999)", "final ÷ grams × 10 × 0.999 ÷ purity"],
+  ["OroPocket you-pay per g", "buy + gst  (gst = 3% × buy, as returned)"],
+  ["OroPocket premium", "buy ÷ (fine rate × 0.999) − 1"],
   ["Historical ₹/10 g", "period avg US$/oz × same-period ECB USD/INR ÷ 31.1034768 × 9.99"],
 ];
 
@@ -151,7 +153,7 @@ export function Methodology() {
               <CheckCircle2 className="size-5 text-up" /> Attribution
             </h3>
             <p className="mt-2 leading-relaxed text-muted-foreground">
-              Spot prices: <a className="text-gold-deep underline underline-offset-2" href="https://gold-api.com/" target="_blank" rel="noopener noreferrer">gold-api.com</a>. Foreign exchange: European Central Bank reference rates via <a className="text-gold-deep underline underline-offset-2" href="https://frankfurter.dev/" target="_blank" rel="noopener noreferrer">Frankfurter</a>. Monthly history: World Bank Commodity Price Data (The Pink Sheet). Not investment advice.
+              Spot prices: <a className="text-gold-deep underline underline-offset-2" href="https://gold-api.com/" target="_blank" rel="noopener noreferrer">gold-api.com</a>. Foreign exchange: European Central Bank reference rates via <a className="text-gold-deep underline underline-offset-2" href="https://frankfurter.dev/" target="_blank" rel="noopener noreferrer">Frankfurter</a>. Monthly history: World Bank Commodity Price Data (The Pink Sheet). Retail rates: <a className="text-gold-deep underline underline-offset-2" href="https://oropocket.com/" target="_blank" rel="noopener noreferrer">OroPocket</a>. Not investment advice.
             </p>
           </Card>
         </div>

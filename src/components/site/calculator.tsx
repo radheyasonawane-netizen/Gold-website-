@@ -45,7 +45,7 @@ function NumberField({ id, label, value, onChange, suffix, step = "any", min = 0
 export function PriceCalculator() {
   const { data } = useMarket();
   const { mode, dutyRate, setDutyRate } = useSettings();
-  const [base, setBase] = React.useState<"parity" | "custom">("parity");
+  const [base, setBase] = React.useState<"parity" | "oro" | "custom">("parity");
   const [customRate, setCustomRate] = React.useState("");
   const [grams, setGrams] = React.useState("10");
   const [purity, setPurity] = React.useState<PurityCode>("999");
@@ -65,7 +65,9 @@ export function PriceCalculator() {
   const parityFine = data?.derived?.finePerGram ?? null;
   const custom = Number(customRate);
   // A custom rate is "₹ per 10 g of 24K 999" and is assumed to already include duty (domestic).
-  const finePerGram = base === "parity" ? parityFine : custom > 0 ? custom / 10 / 0.999 : null;
+  const oro = data?.oroPocket ?? null;
+  // OroPocket's buy rate is a domestic, ex-GST rate for 999 gold, so duty is already inside it.
+  const finePerGram = base === "parity" ? parityFine : base === "oro" ? (oro ? oro.gold.buy / oro.goldFineness : null) : custom > 0 ? custom / 10 / 0.999 : null;
   const g = Number(grams),
     mk = Number(making),
     gs = Number(gst) / 100,
@@ -76,7 +78,7 @@ export function PriceCalculator() {
 
   const segs = b
     ? ([
-        { k: "metal", label: base === "parity" ? "Gold value at spot parity" : "Gold value at your rate", v: b.metal },
+        { k: "metal", label: base === "parity" ? "Gold value at spot parity" : base === "oro" ? "Gold value at OroPocket rate" : "Gold value at your rate", v: b.metal },
         { k: "duty", label: `Customs duty (${fmtNum(du * 100, 1)}%)`, v: b.duty },
         { k: "making", label: makingKind === "percent" ? `Making & margin (${fmtNum(mk, 1)}%)` : `Making (₹${fmtNum(mk, 0)}/g)`, v: b.making },
         { k: "gst", label: `GST (${fmtNum(gs * 100, 1)}%)`, v: b.gst },
@@ -94,16 +96,21 @@ export function PriceCalculator() {
           <form className="space-y-6" onSubmit={(e) => e.preventDefault()} aria-label="Price breakdown inputs">
             <div className="space-y-2">
               <Label id="base-l">Base gold rate</Label>
-              <ToggleGroup type="single" value={base} onValueChange={(v) => v && setBase(v as "parity" | "custom")} aria-labelledby="base-l" className="w-full">
+              <ToggleGroup type="single" value={base} onValueChange={(v) => v && setBase(v as "parity" | "oro" | "custom")} aria-labelledby="base-l" className="w-full">
                 <ToggleGroupItem value="parity" className="flex-1">
                   Live spot parity
                 </ToggleGroupItem>
+                <ToggleGroupItem value="oro" className="flex-1" disabled={!oro}>
+                  OroPocket rate
+                </ToggleGroupItem>
                 <ToggleGroupItem value="custom" className="flex-1">
-                  Rate I was quoted
+                  My quote
                 </ToggleGroupItem>
               </ToggleGroup>
               {base === "parity" ? (
                 <p className="text-xs text-muted-foreground num">{parityFine ? `${fmtInr(parityFine * 10 * 0.999)} per 10 g (999), ex-duty, from live spot.` : "Waiting for live spot…"}</p>
+              ) : base === "oro" ? (
+                <p className="text-xs text-muted-foreground num">{oro ? `OroPocket buy rate ${fmtInr(oro.gold.buy, true)}/g (24K 99.9, excl. GST). Customs duty is already included in this domestic rate.` : "OroPocket rate unavailable."}</p>
               ) : (
                 <NumberField id="custom-rate" label="₹ per 10 g · 24K 999 (excl. GST)" value={customRate} onChange={setCustomRate} hint="e.g. the 24K rate on a jeweller’s board or a published benchmark. Assumed to already include customs duty, so duty is not added again." />
               )}

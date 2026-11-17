@@ -108,6 +108,7 @@ data. It only links to retailer homepages.
 | ExchangeRate-API open endpoint | `GET https://open.er-api.com/v6/latest/USD` | None | *"requires attribution … You are, however, not allowed to re-distribute it."* Updates once per day. | ❌ Not used (ECB is better documented) |
 | **IBJA** (ibjarates.com) | Publishes daily AM/PM rates for 999/995/916/750/585 (₹ per 10 g, *"without 3% GST and Making Charges"*) | n/a | Disclaimer: *"If You wish to use copyrighted material … beyond fair use, You must obtain permission"*. Official API at **indiagoldratesapi.com**: *"Is IBJA rates API free? No, It is a paid subscription."* | ❌ Licence needed. Recommended paid upgrade. |
 | Yahoo Finance | — | — | Unofficial and not licensed for redistribution | ❌ Not used |
+| **OroPocket** (added at the user's request) | `GET https://api.oropocket.com/public/prices` (also `/public/prices/gold`) | None | Keyless, `access-control-allow-origin: *`, `ratelimit-policy: 10;w=60`. **Not listed in OroPocket's developer docs, and no explicit reuse licence was found.** ToS (summary page) prohibits "Reverse engineering" and says nothing about price data. The documented route is `GET /partner/prices` and `/partner/prices/history` with a free sandbox key (`Authorization: Bearer oro_test_…`; "Sandbox returns real prices"; sandbox capped at 1000 requests/day). | ✅ **Live retail rate**, attributed. Switch to `/partner/prices` (key) for a documented contract. |
 
 ### 2.1 Observed response structures (used by the adapters)
 
@@ -120,9 +121,28 @@ data. It only links to retailer homepages.
 [{"date":"2026-11-10","base":"USD","quote":"INR","rate":93.93}, … {"date":"2026-11-16","base":"USD","quote":"INR","rate":93.93}]
 ```
 
+```jsonc
+// GET https://api.oropocket.com/public/prices   (observed 2026-11-17)
+{ "statusCode": 200, "message": "Asset prices retrieved successfully",
+  "data": { "gold":   { "buy": 14032.27, "sell": 13559.46, "gst": 420.97, "currency": "INR", "unit": "gram",
+                        "change24h": { "buy": 0.13, "sell": -0.16 } },
+            "silver": { "buy": 178.52, "sell": 168.77, "gst": 5.36, "currency": "INR", "unit": "gram",
+                        "change24h": { "buy": 0.88, "sell": 0.56 } },
+            "timestamp": "2026-11-17T05:50:00.166Z" } }
+```
+
+OroPocket fields, verified against its partner docs and the numbers above:
+* `buy` is the **GST-exclusive** buy rate per gram. `gst` = 3.000 % of `buy` (420.97 / 14032.27). What a customer pays = `buy + gst` = ₹14,453.24/g.
+* `sell` is the sell-back rate (no GST on sells). The spread was 3.37 %.
+* `change24h` values are percentages (a 0.13 ₹ move on ₹14,032 would be implausible).
+* Product: 24K 99.9 % digital gold sourced from Augmont, vaulted with Sequel (OroPocket FAQ).
+* `timestamp` moved 05:50:00 → 05:55:00 UTC between polls, so it updates about every 5 min. The partner docs say "roughly every 30 minutes" and that the timestamp is the fetch time, not the moment the price moved.
+* Unit is always per gram, never per 10 g.
+
 ### 2.2 Data quality cross-check (17 Nov 2026, ~05:10 UTC)
 
 * gold-api INR quote vs. (USD spot × ECB USD/INR): **0.034 % difference**.
+* OroPocket's buy rate (ex-GST) was **19.7 % above spot parity** for the same 999 gold, consistent with MCX and IBJA sitting well above parity.
 * Spot parity: **₹1,17,0xx per 10 g (999)**. Reference site's MCX at the same time: ₹1,35,581. IBJA 999 on 16/11: ₹1,34,380.
   The domestic market traded about **15 % above** international parity. Customs duty at the
   assumed 6 % explains only part of this. **The rest (local premium/discount, or a duty
@@ -144,6 +164,7 @@ data. It only links to retailer homepages.
 | 1M/3M/6M ranges | Only with `GOLD_API_KEY`; otherwise disabled with an explanation | — | — |
 | Calculator | Live parity or a user-entered rate | — | ✅ duty → making → 3 % GST |
 | Customs duty 6 % | **Assumption** (5 % BCD + 1 % AIDC, Union Budget July 2024). Editable. | — | — |
+| OroPocket card, hero "retail check", seller row, calculator base rate | OroPocket `/public/prices` | Cache 2 min; last good value kept 3 h | ✅ you-pay = buy + gst; premium = buy ÷ (parity fine × 0.999) − 1 |
 | Seller comparison | User-entered quotes (browser localStorage), or a **licensed** feed via `SELLER_FEED_URL` | Feed cache 5 min | ✅ GST, markup, per-10 g (999) |
 | "Try examples" rows | Generated from today's parity with made-up premiums | — | Always badged **Illustrative**, generic names |
 

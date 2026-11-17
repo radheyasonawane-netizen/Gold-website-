@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { FreshnessBadge } from "./freshness";
 import { Sparkline } from "./sparkline";
 import { SectionHeading } from "./section-heading";
+import { OroPocketCard } from "./oropocket-card";
 import { useMarket, useSettings } from "@/components/providers";
 import { fmtInr, fmtIstDate, fmtIstDateTime, fmtNum, fmtPct, fmtUsd } from "@/lib/format";
 
@@ -51,7 +52,7 @@ export function MarketOverview() {
   return (
     <section id="overview" aria-labelledby="overview-h" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
       <SectionHeading id="overview-h" eyebrow="Market overview" title="The numbers behind every gram">
-        Spot prices refresh every 30 seconds from gold-api.com; the rupee reference rate is the European Central Bank’s daily fixing. Indian exchange and association rates require a licence — see the card below.
+        Spot prices refresh every 30 seconds from gold-api.com, and the rupee reference rate is the European Central Bank’s daily fixing. OroPocket’s published rate shows what an Indian buyer actually pays. Exchange and association rates need a licence, as the last card explains.
       </SectionHeading>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -78,6 +79,8 @@ export function MarketOverview() {
             </Card>
           );
         })}
+
+        <OroPocketCard />
 
         <Card className="relative overflow-hidden border-dashed border-gold/40 bg-soft-pink/60 p-5 sm:col-span-2 lg:col-span-3">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

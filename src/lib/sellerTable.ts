@@ -14,7 +14,7 @@ export interface QuoteRow {
   includesGst: boolean;
   url?: string;
   at: string; // ISO time the quote was entered / feed updated
-  origin: "user" | "feed" | "example";
+  origin: "user" | "feed" | "example" | "api";
 }
 
 export type SortKey = "seller" | "final" | "markupPct" | "per10g999";
