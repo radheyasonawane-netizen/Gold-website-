@@ -1,5 +1,21 @@
 # DATA_SOURCES.md — Investigation & verified findings
 
+> **Current site (redesign, 17 Nov 2026):** Kanchan now uses **one data source, OroPocket's public
+> rate** (`api.oropocket.com/public/prices`), and shows only Indian rupee rates. International spot
+> (gold-api.com), ECB FX and World Bank history have been **removed** at the owner's request.
+> 10 g coin prices for ten brands are **entered by the user** (no brand offers a price API; brand
+> sites are not scraped). The sections below keep the original investigation for reference.
+>
+> **Groww Trade API (reviewed 17 Nov 2026, not used):** needs a paid Trading API subscription and the
+> account holder's key (daily-approved access token or TOTP). Groww's REST docs state *"Commodities
+> trading (MCX segment) is not available at this time"*, and the SDK changelog notes an
+> "MCX-not-supported" doc update, so MCX gold quotes are not available through it. Its live data
+> (`get_quote`, `get_ltp`, `get_ohlc`) and historical candles cover NSE/BSE cash and F&O only, with
+> limits of 10 req/s and 300 req/min for live data. Groww's API terms restrict use to *"yourself or
+> your family … and not for other users/investors"*, and its general terms prohibit republishing
+> platform content. The only gold-linked instruments it could return are exchange-traded products
+> (gold ETFs, SGBs), which are not a per-gram gold rate.
+
 Investigation date: **17 Nov 2026** (all timestamps UTC unless stated). Only publicly observable
 behaviour was examined: no credentials were extracted, no authentication was bypassed, and no
 access restrictions were circumvented.

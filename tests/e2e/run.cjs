@@ -1,5 +1,7 @@
 /* End-to-end checks against a running server (default http://localhost:3000).
- * Uses the Playwright that ships with the environment: node tests/e2e/run.cjs [baseUrl]
+ * Uses the Playwright that ships with the environment:
+ *   NODE_USE_ENV_PROXY=1 node tests/e2e/run.cjs [baseUrl]
+ * (NODE_USE_ENV_PROXY is only needed behind an HTTPS proxy, for the raw OroPocket comparison.)
  */
 const { chromium, devices } = require("playwright");
 const path = require("path");
@@ -22,202 +24,155 @@ async function step(name, fn) {
 const assert = (c, m) => {
   if (!c) throw new Error(m);
 };
-const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
+const num = (s) => Number(String(s).replace(/[^\d.]/g, ""));
+const axeRun = (page) =>
+  page.evaluate(async () => {
+    const r = await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } });
+    return { passes: r.passes.length, violations: r.violations.map((x) => `${x.id}(${x.nodes.length}): ${x.nodes[0].target.join(" ")}`) };
+  });
 
 (async () => {
   const browser = await chromium.launch();
-  const req = await (await browser.newContext()).request;
+  const req = (await browser.newContext()).request;
+  let rate;
 
-  console.log("API connectivity");
-  let market;
-  await step("GET /api/market returns live, consistent data", async () => {
-    const r = await req.get(`${BASE}/api/market`);
+  console.log("API");
+  await step("GET /api/rate returns OroPocket's current rate", async () => {
+    const r = await req.get(`${BASE}/api/rate`);
     assert(r.ok(), `status ${r.status()}`);
-    market = await r.json();
-    const d = market.derived;
-    assert(d && d.per10g24k999 > 0, "no derived prices");
-    const fine = market.goldInr.pricePerOz / 31.1034768;
-    assert(Math.abs(d.finePerGram - fine) < 1e-6, "fine/gram mismatch");
-    assert(Math.abs(d.per10g24k999 - fine * 9.99) < 1e-6, "24K per 10g mismatch");
-    assert(Math.abs(d.fxCrossCheckDiff) < 0.02, `FX cross-check off by ${(d.fxCrossCheckDiff * 100).toFixed(2)}%`);
-    const age = Date.now() - Date.parse(market.goldUsd.updatedAt);
-    return `24K ₹${Math.round(d.per10g24k999).toLocaleString("en-IN")}/10g · spot age ${Math.round(age / 1000)}s · FX diff ${(d.fxCrossCheckDiff * 100).toFixed(3)}%`;
+    rate = await r.json();
+    const g = rate.quote.gold;
+    assert(rate.status === "live", `status ${rate.status}`);
+    assert(Math.abs(g.finalBuy - (g.buy + g.gst)) < 1e-9, "finalBuy != buy + gst");
+    assert(Math.abs(g.gst / g.buy - 0.03) < 0.0005, "GST is not 3% of buy");
+    const age = (Date.now() - Date.parse(rate.quote.timestamp)) / 60000;
+    assert(age < 60, `rate is ${age.toFixed(0)} min old`);
+    return `₹${g.finalBuy}/g incl. GST (buy ₹${g.buy} + GST ₹${g.gst}) · rate age ${age.toFixed(1)} min`;
   });
-  await step("OroPocket: server values match the raw public API", async () => {
-    const raw = await (await fetch("https://api.oropocket.com/public/prices")).json(); // Node fetch: honours HTTPS_PROXY with NODE_USE_ENV_PROXY=1
-    const o = market.oroPocket;
-    assert(o, "oroPocket missing from /api/market");
-    const g = raw.data.gold;
-    // Server caches 5 min; OroPocket refreshes ~30 min, so values normally match exactly.
-    if (raw.data.timestamp === o.timestamp) {
-      assert(o.gold.buy === g.buy && o.gold.sell === g.sell && Math.abs(o.gold.gst - g.gst) < 1e-9, "gold buy/sell/gst mismatch");
+  await step("server value matches the raw OroPocket API", async () => {
+    const raw = await (await fetch("https://api.oropocket.com/public/prices")).json(); // Node fetch honours HTTPS_PROXY with NODE_USE_ENV_PROXY=1
+    if (raw.data.timestamp !== rate.quote.timestamp) return `OroPocket moved on since our 2-min cache (${rate.quote.timestamp} → ${raw.data.timestamp}); skipped exact match`;
+    assert(raw.data.gold.buy === rate.quote.gold.buy && raw.data.gold.sell === rate.quote.gold.sell && raw.data.gold.gst === rate.quote.gold.gst, "values differ");
+    return `exact match at ${raw.data.timestamp}`;
+  });
+  await step("no international or removed endpoints remain", async () => {
+    for (const p of ["/api/market", "/api/history", "/api/health", "/api/sellers"]) {
+      const s = (await req.get(`${BASE}${p}`)).status();
+      assert(s === 404, `${p} → ${s}`);
     }
-    assert(Math.abs(o.gold.finalBuy - (o.gold.buy + o.gold.gst)) < 1e-9, "finalBuy != buy + gst");
-    assert(Math.abs(o.gold.gst / o.gold.buy - 0.03) < 0.0005, "GST is not 3% of buy");
-    const prem = o.gold.buy / (market.derived.finePerGram * 0.999) - 1;
-    assert(Math.abs(prem - market.derived.oroPremiumOverParity) < 1e-12, "premium formula mismatch");
-    return `buy ₹${g.buy}/g + GST ₹${g.gst} = ₹${(g.buy + g.gst).toFixed(2)} · sell ₹${g.sell} · rate time ${raw.data.timestamp} · premium ${(prem * 100).toFixed(2)}%`;
-  });
-  await step("GET /api/history serves monthly data with attribution", async () => {
-    const r = await req.get(`${BASE}/api/history?range=10Y`);
-    const h = await r.json();
-    assert(r.ok() && h.points.length >= 100, `points ${h.points?.length}`);
-    assert(h.source === "world-bank" || h.source === "gold-api-history", "unknown source");
-    assert(h.points.every((p) => p.inrPer10g > 0), "missing INR values");
-    const p = h.points.at(-1);
-    assert(Math.abs(p.inrPer10g - (p.usdPerOz * p.usdInr / 31.1034768) * 9.99) < 1e-6, "history INR formula mismatch");
-    return `${h.points.length} ${h.granularity} points from ${h.source}`;
-  });
-  await step("GET /api/history rejects unserviceable ranges honestly", async () => {
-    const h = await (await req.get(`${BASE}/api/history?range=1M`)).json();
-    if (h.availableRanges.includes("1M")) return "1M available (key configured)";
-    assert(h.points.length === 0 && h.status === "unconfigured", "1M should be unconfigured without key");
-    return "1M → unconfigured, no fake points";
-  });
-  await step("GET /api/health reports every source", async () => {
-    const h = await (await req.get(`${BASE}/api/health`)).json();
-    const ids = h.sources.map((s) => `${s.id}:${s.status}`);
-    assert(h.sources.length >= 5, "too few sources");
-    assert(h.sources.every((s) => s.licence && s.attribution), "missing licence/attribution");
-    return ids.join(", ");
-  });
-  await step("API responses never leak credentials", async () => {
-    const txt = await (await req.get(`${BASE}/api/health`)).text();
-    assert(!/x-api-key\s*[:=]\s*\w|GOLD_API_KEY=|Bearer\s+\w{8,}/i.test(txt), "possible secret in output");
+    return "/api/market, /history, /health, /sellers → 404";
   });
 
-  console.log("Desktop UI");
+  console.log("Desktop");
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
-  const consoleErrors = [];
-  page.on("pageerror", (e) => consoleErrors.push(e.message));
-  page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
+  const errors = [];
+  const hosts = new Set();
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  page.on("request", (r) => hosts.add(new URL(r.url()).host));
   let perf;
-  await step("page loads and hero price matches API", async () => {
+  await step("hero shows the 10 g rate incl. GST matching the API", async () => {
     await page.goto(BASE, { waitUntil: "networkidle" });
     perf = await page.evaluate(() => {
       const n = performance.getEntriesByType("navigation")[0];
       const fcp = performance.getEntriesByName("first-contentful-paint")[0];
-      return { domContentLoaded: Math.round(n.domContentLoadedEventEnd), load: Math.round(n.loadEventEnd), fcp: fcp ? Math.round(fcp.startTime) : null, transferKB: Math.round(performance.getEntriesByType("resource").reduce((a, r) => a + (r.transferSize || 0), n.transferSize || 0) / 1024) };
+      return { fcp: fcp ? Math.round(fcp.startTime) : null, load: Math.round(n.loadEventEnd), kb: Math.round(performance.getEntriesByType("resource").reduce((a, r) => a + (r.transferSize || 0), n.transferSize || 0) / 1024) };
     });
-    const hero = parseInr(await page.textContent("[data-testid=hero-price]"));
-    const api = await (await req.get(`${BASE}/api/market`)).json();
-    assert(Math.abs(hero - api.derived.per10g24k999) < 60, `hero ${hero} vs api ${api.derived.per10g24k999}`);
-    return `₹${hero.toLocaleString("en-IN")} · FCP ${perf.fcp}ms · load ${perf.load}ms · ${perf.transferKB} KB`;
+    const api = await (await req.get(`${BASE}/api/rate`)).json();
+    const ten = num(await page.textContent("[data-testid=rate-10g]"));
+    assert(Math.abs(ten - api.quote.gold.finalBuy * 10) <= 1, `hero ${ten} vs ${api.quote.gold.finalBuy * 10}`);
+    const one = num(await page.textContent("[data-testid=rate-1g]"));
+    assert(Math.abs(one - api.quote.gold.finalBuy) < 0.01, "per-gram mismatch");
+    const badge = await page.locator("#rate [data-slot=badge]").first().textContent();
+    assert(/Current|Delayed/.test(badge), badge);
+    return `₹${ten.toLocaleString("en-IN")}/10 g · badge "${badge.trim()}" · FCP ${perf.fcp} ms · load ${perf.load} ms · ${perf.kb} KB`;
   });
-  await step("source attribution & timestamps visible", async () => {
-    const badge = page.locator("#overview [data-slot=badge]").first();
-    const t = await badge.textContent();
-    assert(/Live|Delayed|Stale/.test(t) && /ago/.test(t), `badge "${t}"`);
-    await page.waitForSelector("[data-testid=source-list] li");
-    const txt = await page.textContent("#methodology");
-    for (const s of ["gold-api.com", "European Central Bank", "World Bank", "OroPocket"]) assert(txt.includes(s), `missing ${s}`);
-    const oroUi = parseInr(await page.textContent("[data-testid=oro-final]"));
-    const m2 = await (await req.get(`${BASE}/api/market`)).json();
-    assert(Math.abs(oroUi - m2.oroPocket.gold.finalBuy) < 0.01, `OroPocket card ${oroUi} vs ${m2.oroPocket.gold.finalBuy}`);
-    return t.trim();
+  await step("purity table derives 22K and 18K from 24K", async () => {
+    const api = await (await req.get(`${BASE}/api/rate`)).json();
+    const cells = await page.locator("[data-testid=purity-table] tbody tr td:nth-child(3)").allTextContents();
+    const [k24, k22, k18] = cells.map(num);
+    const f = api.quote.gold.finalBuy * 10;
+    assert(Math.abs(k24 - f) <= 1 && Math.abs(k22 - (f * 0.916) / 0.999) <= 1 && Math.abs(k18 - (f * 0.75) / 0.999) <= 1, `${cells}`);
+    return `24K ${cells[0]} · 22K ${cells[1]} · 18K ${cells[2]}`;
   });
-  await step("history chart: range switch, hover tooltip, table view", async () => {
-    await page.locator("#chart").scrollIntoViewIfNeeded();
-    await page.getByRole("radio", { name: "Range 10Y" }).click();
-    await page.waitForFunction(() => /\d/.test(document.querySelector("[data-testid=history-stats]")?.textContent || ""));
-    const stats10 = await page.textContent("[data-testid=history-stats]");
-    await page.getByRole("radio", { name: "Range 1Y" }).click();
-    await page.waitForFunction((prev) => document.querySelector("[data-testid=history-stats]")?.textContent !== prev, stats10);
-    const box = await page.locator("[data-testid=history-chart] .recharts-surface").boundingBox();
-    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-    await page.waitForSelector(".recharts-tooltip-wrapper >> text=/₹/", { timeout: 5000 });
-    const tip = await page.locator(".recharts-tooltip-wrapper").textContent();
-    await page.getByRole("button", { name: /Table/ }).click();
-    const rows = await page.locator("#chart table tbody tr").count();
-    assert(rows >= 12, `table rows ${rows}`);
-    await page.getByRole("button", { name: /Chart/ }).click();
-    return `tooltip "${tip.trim()}" · ${rows} table rows`;
+  await step("page uses only Indian data: no international figures or hosts", async () => {
+    const txt = await page.textContent("body");
+    for (const bad of ["US$", "troy", "XAU", "USD/INR", "parity", "World Bank", "gold-api", "ECB"]) assert(!txt.includes(bad), `found "${bad}"`);
+    const external = [...hosts].filter((h) => !h.startsWith("localhost"));
+    assert(external.length === 0, `browser contacted ${external.join(", ")}`);
+    return "no USD/oz, FX, parity or third-party requests from the browser";
   });
-  await step("calculator arithmetic matches lib formula", async () => {
+  await step("coin comparison: 10 brands, enter prices, ranking, sort, persist, clear", async () => {
+    await page.locator("#coins").scrollIntoViewIfNeeded();
+    const rows = "[data-testid=coin-table] [data-testid=coin-row]";
+    assert((await page.locator(rows).count()) === 10, "expected 10 brands");
+    const api = await (await req.get(`${BASE}/api/rate`)).json();
+    const ref = api.quote.gold.finalBuy;
+    const fill = async (id, v) => {
+      await page.fill(`#price-${id}`, String(v));
+      await page.press(`#price-${id}`, "Enter");
+    };
+    await fill("tanishq", 151000);
+    await fill("mmtcpamp", 149500);
+    await fill("augmont", 146800);
+    await page.fill("#price-kalyan", "12");
+    await page.press("#price-kalyan", "Enter");
+    assert(await page.locator("text=Enter the 10 g price in ₹").isVisible(), "invalid input not flagged");
+    await page.fill("#price-kalyan", "");
+    await page.press("#price-kalyan", "Enter");
+    const order = await page.locator(rows).evaluateAll((els) => els.slice(0, 3).map((e) => e.getAttribute("data-brand")));
+    // MMTC-PAMP is 999.9 by default: 149500 × 0.999/0.9999 = 149,365 per 10 g (999)
+    assert(order.join() === "augmont,mmtcpamp,tanishq", `order ${order}`);
+    const first = page.locator(rows).first();
+    const per10 = num(await first.locator("td:nth-child(5)").textContent());
+    assert(Math.abs(per10 - 146800) <= 1, `augmont per10 ${per10}`);
+    const prem = num((await first.locator("td:nth-child(6)").textContent()).split("+")[0]);
+    assert(Math.abs(prem - (146800 - ref * 10)) <= 1, `premium ${prem} vs ${146800 - ref * 10}`);
+    assert((await page.textContent("[data-testid=coins-lowest]")).includes("1,46,800"), "lowest card wrong");
+    await page.getByRole("button", { name: /Brand/ }).click();
+    const byName = await page.locator(rows).evaluateAll((els) => els.slice(0, 3).map((e) => e.getAttribute("data-brand")));
+    assert(byName.join() === "augmont,mmtcpamp,tanishq", `brand sort ${byName}`);
+    assert((await page.locator("th[aria-sort=ascending]").count()) === 1, "aria-sort missing");
+    await page.reload({ waitUntil: "networkidle" });
+    assert((await page.inputValue("#price-tanishq")) === "151000", "price not persisted");
+    assert(await page.locator(`${rows} >> text=Entered`).first().isVisible(), "entered time missing");
+    await page.getByRole("button", { name: `Clear Tanishq price` }).first().click();
+    assert((await page.inputValue("#price-tanishq")) === "", "clear failed");
+    return `ranked augmont < mmtcpamp(999.9→999) < tanishq · premium ₹${prem.toLocaleString("en-IN")} · persisted & cleared`;
+  });
+  await step("calculator: 10 g 24K equals the rate; 22K with 12% making", async () => {
+    const api = await (await req.get(`${BASE}/api/rate`)).json();
+    const buy = api.quote.gold.buy;
     await page.locator("#calculator").scrollIntoViewIfNeeded();
-    await page.fill("#grams", "20");
-    await page.fill("#making", "10");
-    await page.fill("#duty", "6");
-    const total = parseInr(await page.textContent("[data-testid=calc-total]"));
-    const m = await (await req.get(`${BASE}/api/market`)).json();
-    const metal = m.derived.finePerGram * 20 * 0.999;
-    const expected = metal * 1.06 * 1.1 * 1.03;
-    assert(Math.abs(total - expected) / expected < 0.002, `total ${total} vs expected ${Math.round(expected)}`);
-    await page.getByRole("radio", { name: "My quote" }).click();
-    await page.fill("#custom-rate", "135000");
+    await page.fill("#grams", "10");
     await page.fill("#making", "0");
-    const t2 = parseInr(await page.textContent("[data-testid=calc-total]"));
-    const e2 = 135000 * 2 * 1.03; // 20 g of 999 at ₹135,000/10g, no duty re-added, 3% GST
-    assert(Math.abs(t2 - e2) < 2, `custom total ${t2} vs ${e2}`);
-    return `parity ₹${total.toLocaleString("en-IN")} · custom ₹${t2.toLocaleString("en-IN")}`;
+    const t1 = num(await page.textContent("[data-testid=calc-total]"));
+    assert(Math.abs(t1 - buy * 10 * 1.03) <= 1, `${t1} vs ${buy * 10 * 1.03}`);
+    await page.selectOption("#purity", "916");
+    await page.fill("#making", "12");
+    const t2 = num(await page.textContent("[data-testid=calc-total]"));
+    const e2 = ((buy * 0.916 * 10) / 0.999) * 1.12 * 1.03;
+    assert(Math.abs(t2 - e2) <= 1, `${t2} vs ${e2}`);
+    return `₹${t1.toLocaleString("en-IN")} · ₹${t2.toLocaleString("en-IN")}`;
   });
-  await step("seller table: add quote, examples, sort, filter, remove", async () => {
-    await page.locator("#sellers").scrollIntoViewIfNeeded();
-    await page.getByRole("button", { name: "Add a quote" }).click();
-    await page.getByRole("button", { name: "Add to comparison" }).click();
-    await page.waitForSelector("#quote-form [role=alert]");
-    await page.fill("#qf-seller", "Test Jeweller");
-    await page.fill("#qf-product", "10 g test coin");
-    await page.fill("#qf-price", "150000");
-    await page.getByRole("button", { name: "Add to comparison" }).click();
-    await page.getByRole("button", { name: "Try examples" }).click();
-    const rowsSel = "[data-testid=seller-table] [data-testid=seller-row]";
-    await page.waitForFunction((s) => document.querySelectorAll(s).length === 7, rowsSel);
-    const per10 = async () => (await page.locator(`${rowsSel} td:nth-child(10)`).allTextContents()).map(parseInr);
-    const asc = await per10();
-    assert(asc.every((v, i) => i === 0 || v >= asc[i - 1]), `not ascending ${asc}`);
-    await page.getByRole("button", { name: /Per 10 g \(999\)/ }).click();
-    const desc = await per10();
-    assert(desc.every((v, i) => i === 0 || v <= desc[i - 1]), "not descending");
-    assert((await page.locator("th[aria-sort=descending]").count()) === 1, "aria-sort missing");
-    await page.getByRole("radio", { name: "Bars" }).click();
-    const bars = await page.locator(rowsSel).count();
-    await page.fill("input[aria-label='Search seller or product']", "test");
-    await page.getByRole("radio", { name: "All" }).click();
-    const searched = await page.locator(rowsSel).count();
-    assert(bars === 1 && searched === 1, `bars ${bars} search ${searched}`);
-    await page.getByRole("button", { name: /Remove Test Jeweller/ }).first().click();
-    await page.fill("input[aria-label='Search seller or product']", "");
-    const left = await page.locator(rowsSel).count();
-    assert(left === 6, `left ${left}`);
-    assert((await page.locator(`${rowsSel} >> text=Live API`).count()) === 1, "OroPocket live row missing");
-    const illus = await page.locator(`${rowsSel} >> text=Illustrative`).count();
-    assert(illus === 5, "examples must be labelled Illustrative");
-    return `sorted asc/desc, filtered (bars=${bars}), 5 labelled examples`;
-  });
-  await step("Advanced mode reveals extra metrics and columns", async () => {
-    const before = await page.locator("[data-testid^=metric-]").count();
-    await page.getByRole("radio", { name: "Advanced mode" }).first().click();
-    const after = await page.locator("[data-testid^=metric-]").count();
-    assert(after > before, `${before} → ${after}`);
-    assert(await page.locator("th >> text=of which duty*").count(), "duty column missing");
-    await page.getByRole("radio", { name: "Simple mode" }).first().click();
-    return `${before} → ${after} metric cards`;
-  });
-  await step("accessibility: axe-core (WCAG 2 A/AA) on desktop", async () => {
+  await step("accessibility (axe, WCAG 2.1 AA) on desktop", async () => {
     await page.addScriptTag({ content: AXE });
-    const r = await page.evaluate(async () => await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } }));
-    const v = r.violations.map((x) => `${x.id}(${x.nodes.length}): ${x.nodes[0].target.join(" ")}`);
-    assert(v.length === 0, v.join(" | "));
-    return `${r.passes.length} rules passed, 0 violations`;
+    const r = await axeRun(page);
+    assert(r.violations.length === 0, r.violations.join(" | "));
+    return `${r.passes} rules passed, 0 violations`;
   });
-  await step("no console errors", async () => {
-    assert(consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
-  });
+  await step("no console errors", async () => assert(errors.length === 0, errors.slice(0, 3).join(" | ")));
   await ctx.close();
 
-  console.log("Mobile UI (iPhone 13)");
-  const mctx = await browser.newContext({ ...devices["iPhone 13"] });
-  const m = await mctx.newPage();
-  await step("no horizontal scroll, cards replace table, dock + sheet nav work", async () => {
+  console.log("Mobile (iPhone 13)");
+  const m = await (await browser.newContext({ ...devices["iPhone 13"] })).newPage();
+  await step("no horizontal scroll; coin cards; menu and dock navigate", async () => {
     await m.goto(BASE, { waitUntil: "networkidle" });
     const [sw, iw] = await m.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
     assert(sw <= iw, `scrollWidth ${sw} > ${iw}`);
-    await m.locator("#sellers").scrollIntoViewIfNeeded();
-    await m.getByRole("button", { name: "Try examples" }).click();
-    await m.waitForSelector("[data-testid=seller-cards] li");
-    assert(!(await m.locator("[data-testid=seller-table]").isVisible()), "table should be hidden on mobile");
+    assert((await m.locator("[data-testid=coin-cards] li").count()) === 10, "10 cards expected");
+    assert(!(await m.locator("[data-testid=coin-table]").isVisible()), "table should hide on mobile");
     await m.getByRole("button", { name: "Open menu" }).click();
     await m.getByRole("dialog").getByRole("link", { name: "Calculator" }).click();
     await m.waitForTimeout(1600);
@@ -226,48 +181,40 @@ const parseInr = (s) => Number(String(s).replace(/[^\d.]/g, ""));
     assert(await m.getByRole("navigation", { name: "Quick sections" }).isVisible(), "dock missing");
     return `scrollWidth ${sw}/${iw}`;
   });
-  await step("accessibility: axe-core on mobile", async () => {
+  await step("accessibility (axe) on mobile", async () => {
     await m.addScriptTag({ content: AXE });
-    const r = await m.evaluate(async () => await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } }));
-    const v = r.violations.map((x) => `${x.id}(${x.nodes.length}): ${x.nodes[0].target.join(" ")}`);
-    assert(v.length === 0, v.join(" | "));
+    const r = await axeRun(m);
+    assert(r.violations.length === 0, r.violations.join(" | "));
   });
-  await mctx.close();
 
   console.log("Loading & error states");
-  const ectx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const e = await ectx.newPage();
-  await step("skeletons show while market data is pending", async () => {
+  const e = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
+  await step("skeleton while the rate loads", async () => {
     let release;
     const gate = new Promise((r) => (release = r));
-    await e.route("**/api/market", async (route) => {
+    await e.route("**/api/rate", async (route) => {
       await gate;
       await route.continue();
     });
     await e.goto(BASE, { waitUntil: "domcontentloaded" });
     await e.waitForSelector("[data-slot=skeleton]");
-    const busy = await e.getAttribute("#top [aria-busy]", "aria-busy");
     release();
-    await e.waitForSelector("[data-testid=hero-price]");
-    await e.unroute("**/api/market");
-    return `aria-busy=${busy}`;
+    await e.waitForSelector("[data-testid=rate-10g]");
+    await e.unroute("**/api/rate");
   });
-  await step("upstream failure shows an error, never fake numbers", async () => {
-    await e.route("**/api/market", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ serverTime: new Date().toISOString(), goldUsd: null, goldInr: null, silverUsd: null, fx: null, derived: null, ticks: [], ticksSince: null, sources: [{ id: "gold-api", status: "error", fetchedAt: null, sourceUpdatedAt: null, error: "HTTP 503" }] }) }));
-    await e.route("**/api/history*", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "World Bank: timed out" }) }));
+  await step("OroPocket down: error shown, never a made-up price", async () => {
+    await e.route("**/api/rate", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ serverTime: new Date().toISOString(), quote: null, status: "error", fetchedAt: null, error: "HTTP 503 from api.oropocket.com", ticks: [] }) }));
     await e.goto(BASE, { waitUntil: "networkidle" });
-    const alert = await e.locator("#top [role=alert]").textContent();
-    assert(/never substitute sample numbers/.test(alert), alert);
-    assert((await e.locator("[data-testid=hero-price]").count()) === 0, "price shown during outage");
-    await e.waitForSelector("#chart [role=alert]");
-    const badge = await e.locator("#overview [data-slot=badge]").first().textContent();
+    const alert = await e.locator("#rate [role=alert]").textContent();
+    assert(/unavailable/i.test(alert) && /No old or estimated price/.test(alert), alert);
+    assert((await e.locator("[data-testid=rate-10g]").count()) === 0, "price shown during outage");
+    const badge = await e.locator("#rate [data-slot=badge]").first().textContent();
     assert(/Unavailable/.test(badge), badge);
-    await e.unroute("**/api/history*");
-    await e.locator("#chart").getByRole("button", { name: "Retry" }).click();
-    await e.waitForSelector("[data-testid=history-chart]");
-    return `hero alert + "${badge.trim()}" badge; chart retry recovered`;
+    await e.unroute("**/api/rate");
+    await e.locator("#rate").getByRole("button", { name: "Retry" }).click();
+    await e.waitForSelector("[data-testid=rate-10g]");
+    return "alert + Unavailable badge; Retry recovered";
   });
-  await ectx.close();
   await browser.close();
 
   const failed = results.filter((r) => !r.ok);

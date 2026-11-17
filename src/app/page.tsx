@@ -1,10 +1,8 @@
 import { SiteHeader, MobileDock } from "@/components/site/header";
-import { Hero } from "@/components/site/hero";
-import { MarketOverview } from "@/components/site/market-overview";
-import { HistoryChart } from "@/components/site/history-chart";
+import { RateHero } from "@/components/site/rate-hero";
+import { CoinComparison } from "@/components/site/coin-comparison";
 import { PriceCalculator } from "@/components/site/calculator";
-import { SellerComparison } from "@/components/site/sellers";
-import { Methodology } from "@/components/site/methodology";
+import { Sources } from "@/components/site/sources";
 import { SiteFooter } from "@/components/site/footer";
 
 export default function Home() {
@@ -12,12 +10,10 @@ export default function Home() {
     <>
       <SiteHeader />
       <main>
-        <Hero />
-        <MarketOverview />
-        <HistoryChart />
+        <RateHero />
+        <CoinComparison />
         <PriceCalculator />
-        <SellerComparison />
-        <Methodology />
+        <Sources />
       </main>
       <SiteFooter />
       <MobileDock />

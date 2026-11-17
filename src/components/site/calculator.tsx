@@ -7,126 +7,57 @@ import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SectionHeading } from "./section-heading";
-import { useMarket, useSettings } from "@/components/providers";
-import { DEFAULT_GST_RATE, priceBreakdown, type MakingCharge } from "@/lib/calc";
+import { useRate } from "@/components/providers";
+import { GST_RATE, priceBreakdown } from "@/lib/calc";
 import { fmtInr, fmtNum } from "@/lib/format";
 import { PURITIES, purityByCode, type PurityCode } from "@/lib/units";
 
-/** Segment colours validated with the dataviz palette checker (labels + 2px gaps provide CVD relief). */
-const SEG = { metal: "#a87b2a", duty: "#6250d6", making: "#e87ba4", gst: "#1baf7a" } as const;
-const WEIGHTS = [1, 5, 8, 10, 20, 50, 100];
-
-function NumberField({ id, label, value, onChange, suffix, step = "any", min = 0, hint }: { id: string; label: string; value: string; onChange: (v: string) => void; suffix?: string; step?: string; min?: number; hint?: React.ReactNode }) {
-  const invalid = value !== "" && (!Number.isFinite(Number(value)) || Number(value) < min);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        <Label htmlFor={id}>{label}</Label>
-        {hint ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button type="button" aria-label={`About ${label}`} className="text-muted-foreground hover:text-gold-deep">
-                <Info className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{hint}</TooltipContent>
-          </Tooltip>
-        ) : null}
-      </div>
-      <div className="relative">
-        <Input id={id} inputMode="decimal" type="number" step={step} min={min} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={invalid || undefined} className={suffix ? "pr-14" : ""} />
-        {suffix ? <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-muted-foreground">{suffix}</span> : null}
-      </div>
-      {invalid ? <p className="text-xs text-down">Enter a number ≥ {min}.</p> : null}
-    </div>
-  );
-}
+/** Segment colours validated with the dataviz palette checker; every segment is also labelled. */
+const SEG = { gold: "#a87b2a", making: "#e87ba4", gst: "#1baf7a" } as const;
+const WEIGHTS = [1, 2, 5, 8, 10, 20, 50, 100];
 
 export function PriceCalculator() {
-  const { data } = useMarket();
-  const { mode, dutyRate, setDutyRate } = useSettings();
-  const [base, setBase] = React.useState<"parity" | "oro" | "custom">("parity");
-  const [customRate, setCustomRate] = React.useState("");
+  const { data } = useRate();
   const [grams, setGrams] = React.useState("10");
   const [purity, setPurity] = React.useState<PurityCode>("999");
-  const [makingKind, setMakingKind] = React.useState<"percent" | "perGram">("percent");
+  const [kind, setKind] = React.useState<"percent" | "perGram">("percent");
   const [making, setMaking] = React.useState("0");
-  const [gst, setGst] = React.useState(String(DEFAULT_GST_RATE * 100));
-  const [duty, setDuty] = React.useState(String(dutyRate * 100));
-  React.useEffect(() => setDuty(String(+(dutyRate * 100).toFixed(2))), [dutyRate]);
 
-  React.useEffect(() => {
-    if (mode === "simple") {
-      setMakingKind("percent");
-      setGst(String(DEFAULT_GST_RATE * 100));
-    }
-  }, [mode]);
-
-  const parityFine = data?.derived?.finePerGram ?? null;
-  const custom = Number(customRate);
-  // A custom rate is "₹ per 10 g of 24K 999" and is assumed to already include duty (domestic).
-  const oro = data?.oroPocket ?? null;
-  // OroPocket's buy rate is a domestic, ex-GST rate for 999 gold, so duty is already inside it.
-  const finePerGram = base === "parity" ? parityFine : base === "oro" ? (oro ? oro.gold.buy / oro.goldFineness : null) : custom > 0 ? custom / 10 / 0.999 : null;
+  const rate = data?.quote?.gold.buy ?? null; // ₹/g of 999, excl. GST
   const g = Number(grams),
-    mk = Number(making),
-    gs = Number(gst) / 100,
-    du = base === "parity" ? Number(duty) / 100 : 0;
-  const valid = finePerGram && g > 0 && mk >= 0 && gs >= 0 && du >= 0;
-  const mc: MakingCharge = makingKind === "percent" ? { kind: "percent", value: mk / 100 } : { kind: "perGram", value: mk };
-  const b = valid ? priceBreakdown({ finePerGram: finePerGram!, grams: g, fineness: purityByCode(purity).fineness, importDutyRate: du, making: mc, gstRate: gs }) : null;
-
+    mk = Number(making);
+  const valid = rate && g > 0 && mk >= 0;
+  const b = valid ? priceBreakdown({ rate999ExGst: rate!, grams: g, fineness: purityByCode(purity).fineness, making: kind === "percent" ? { kind, value: mk / 100 } : { kind, value: mk } }) : null;
   const segs = b
     ? ([
-        { k: "metal", label: base === "parity" ? "Gold value at spot parity" : base === "oro" ? "Gold value at OroPocket rate" : "Gold value at your rate", v: b.metal },
-        { k: "duty", label: `Customs duty (${fmtNum(du * 100, 1)}%)`, v: b.duty },
-        { k: "making", label: makingKind === "percent" ? `Making & margin (${fmtNum(mk, 1)}%)` : `Making (₹${fmtNum(mk, 0)}/g)`, v: b.making },
-        { k: "gst", label: `GST (${fmtNum(gs * 100, 1)}%)`, v: b.gst },
+        { k: "gold", label: `Gold value (${purity})`, v: b.gold },
+        { k: "making", label: kind === "percent" ? `Making charge (${fmtNum(mk, 1)}%)` : `Making charge (₹${fmtNum(mk, 0)}/g)`, v: b.making },
+        { k: "gst", label: `GST (${GST_RATE * 100}%)`, v: b.gst },
       ] as const)
     : [];
 
   return (
-    <section id="calculator" aria-labelledby="calc-h" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
-      <SectionHeading id="calc-h" eyebrow="Price breakdown" title="What you’re actually paying for">
-        Build a price from the metal up: gold value, customs duty, making charge, then 3% GST on the whole. Use the live parity, or type in a rate you were quoted.
+    <section id="calculator" aria-labelledby="calc-h" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+      <SectionHeading id="calc-h" eyebrow="Calculator" title="Price any weight or purity">
+        Uses today’s 24K rate. Add a making charge for jewellery or branded coins, and 3% GST is applied to the whole bill, as Indian jewellers charge it.
       </SectionHeading>
-
       <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
         <Card className="p-5 sm:p-6">
-          <form className="space-y-6" onSubmit={(e) => e.preventDefault()} aria-label="Price breakdown inputs">
+          <form className="space-y-6" onSubmit={(e) => e.preventDefault()} aria-label="Calculator inputs">
             <div className="space-y-2">
-              <Label id="base-l">Base gold rate</Label>
-              <ToggleGroup type="single" value={base} onValueChange={(v) => v && setBase(v as "parity" | "oro" | "custom")} aria-labelledby="base-l" className="w-full">
-                <ToggleGroupItem value="parity" className="flex-1">
-                  Live spot parity
-                </ToggleGroupItem>
-                <ToggleGroupItem value="oro" className="flex-1" disabled={!oro}>
-                  OroPocket rate
-                </ToggleGroupItem>
-                <ToggleGroupItem value="custom" className="flex-1">
-                  My quote
-                </ToggleGroupItem>
-              </ToggleGroup>
-              {base === "parity" ? (
-                <p className="text-xs text-muted-foreground num">{parityFine ? `${fmtInr(parityFine * 10 * 0.999)} per 10 g (999), ex-duty, from live spot.` : "Waiting for live spot…"}</p>
-              ) : base === "oro" ? (
-                <p className="text-xs text-muted-foreground num">{oro ? `OroPocket buy rate ${fmtInr(oro.gold.buy, true)}/g (24K 99.9, excl. GST). Customs duty is already included in this domestic rate.` : "OroPocket rate unavailable."}</p>
-              ) : (
-                <NumberField id="custom-rate" label="₹ per 10 g · 24K 999 (excl. GST)" value={customRate} onChange={setCustomRate} hint="e.g. the 24K rate on a jeweller’s board or a published benchmark. Assumed to already include customs duty, so duty is not added again." />
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <NumberField id="grams" label="Weight" value={grams} onChange={setGrams} suffix="grams" />
+              <Label htmlFor="grams">Weight</Label>
+              <div className="relative">
+                <Input id="grams" type="number" inputMode="decimal" min="0" step="any" value={grams} onChange={(e) => setGrams(e.target.value)} aria-invalid={grams !== "" && !(g > 0) ? true : undefined} className="pr-16" />
+                <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-muted-foreground">grams</span>
+              </div>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick weights">
                 {WEIGHTS.map((w) => (
-                  <button key={w} type="button" onClick={() => setGrams(String(w))} aria-pressed={Number(grams) === w} className={`rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:ring-[3px] focus-visible:ring-gold/30 focus-visible:outline-none ${Number(grams) === w ? "border-charcoal bg-charcoal text-white" : "border-border bg-white hover:border-gold/50"}`}>
+                  <button key={w} type="button" onClick={() => setGrams(String(w))} aria-pressed={g === w} className={`rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:ring-[3px] focus-visible:ring-gold/30 focus-visible:outline-none ${g === w ? "border-charcoal bg-charcoal text-white" : "border-border bg-white hover:border-gold/50"}`}>
                     {w}g
                   </button>
                 ))}
               </div>
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="purity">Purity</Label>
               <select id="purity" value={purity} onChange={(e) => setPurity(e.target.value as PurityCode)} className="h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:border-gold focus-visible:ring-[3px] focus-visible:ring-gold/25">
@@ -137,52 +68,38 @@ export function PriceCalculator() {
                 ))}
               </select>
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                {mode === "advanced" ? (
-                  <ToggleGroup type="single" value={makingKind} onValueChange={(v) => v && setMakingKind(v as "percent" | "perGram")} aria-label="Making charge type" className="mb-1">
-                    <ToggleGroupItem value="percent">%</ToggleGroupItem>
-                    <ToggleGroupItem value="perGram">₹/g</ToggleGroupItem>
-                  </ToggleGroup>
-                ) : null}
-                <NumberField
-                  id="making"
-                  label="Making charge"
-                  value={making}
-                  onChange={setMaking}
-                  suffix={makingKind === "percent" ? "%" : "₹/g"}
-                  hint="Coins and bars are often 0–8% above metal; jewellery commonly 8–25%. Use the figure on your quote."
-                />
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="making">Making charge</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" aria-label="About making charge" className="text-muted-foreground hover:text-gold-deep">
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Branded coins usually carry 3–10% over the gold value; jewellery commonly 8–25%. Use the figure on your bill.</TooltipContent>
+                </Tooltip>
               </div>
-              {base === "parity" ? (
-                <NumberField
-                  id="duty"
-                  label="Customs duty"
-                  value={duty}
-                  onChange={(v) => {
-                    setDuty(v);
-                    const n = Number(v);
-                    if (Number.isFinite(n) && n >= 0) setDutyRate(n / 100);
-                  }}
-                  suffix="%"
-                  hint="Assumption, not live data: 6% = 5% Basic Customs Duty + 1% AIDC per Union Budget, July 2024. Check the current CBIC notification."
-                />
-              ) : null}
-              {mode === "advanced" ? <NumberField id="gst" label="GST" value={gst} onChange={setGst} suffix="%" hint="3% on gold goods (HSN 71). Applied to metal + duty + making." /> : null}
+              <div className="flex gap-2">
+                <ToggleGroup type="single" value={kind} onValueChange={(v) => v && setKind(v as "percent" | "perGram")} aria-label="Making charge type">
+                  <ToggleGroupItem value="percent">%</ToggleGroupItem>
+                  <ToggleGroupItem value="perGram">₹/g</ToggleGroupItem>
+                </ToggleGroup>
+                <Input id="making" type="number" inputMode="decimal" min="0" step="any" value={making} onChange={(e) => setMaking(e.target.value)} aria-invalid={making !== "" && !(mk >= 0) ? true : undefined} />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground num">{rate ? `Today’s 24K rate: ${fmtInr(rate, true)}/g excl. GST (OroPocket).` : "Waiting for today’s rate…"}</p>
           </form>
         </Card>
 
         <Card className="relative overflow-hidden bg-gradient-to-br from-white to-soft-pink p-5 sm:p-7" aria-live="polite">
-          <div aria-hidden className="absolute -right-16 -top-16 size-56 rounded-full bg-pink/60 blur-2xl" />
+          <div aria-hidden className="absolute -top-16 -right-16 size-56 rounded-full bg-pink/60 blur-2xl" />
           <div className="relative">
-            <div className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">Estimated price you pay</div>
+            <div className="text-xs font-semibold tracking-[0.12em] text-muted-foreground uppercase">Estimated price</div>
             <div className="mt-2 font-display text-5xl font-semibold tracking-tight num sm:text-6xl" data-testid="calc-total">
               {b ? fmtInr(b.total) : "—"}
             </div>
-            <div className="mt-1 text-sm text-muted-foreground num">{b ? `${fmtInr(b.perGram)} per gram · ${fmtNum(g, 2)} g of ${purity}` : "Enter a valid rate and weight."}</div>
-
+            <div className="mt-1 text-sm text-muted-foreground num">{b ? `${fmtInr(b.perGram)} per gram · ${fmtNum(g, 2)} g of ${purity}` : "Enter a weight above."}</div>
             {b ? (
               <>
                 <div className="mt-6 flex h-4 w-full gap-[2px] overflow-hidden rounded-full bg-white" role="img" aria-label={segs.map((s) => `${s.label} ${fmtInr(s.v)}`).join(", ")}>
@@ -196,7 +113,7 @@ export function PriceCalculator() {
                   {segs.map((s) => (
                     <div key={s.k} className="flex items-center justify-between gap-3 py-3">
                       <dt className="flex min-w-0 items-center gap-2.5 text-sm">
-                        <span className="size-2.5 rounded-full" style={{ background: SEG[s.k] }} aria-hidden />
+                        <span className="size-2.5 shrink-0 rounded-full" style={{ background: SEG[s.k] }} aria-hidden />
                         {s.label}
                       </dt>
                       <dd className="shrink-0 text-right whitespace-nowrap num">
@@ -207,23 +124,12 @@ export function PriceCalculator() {
                   ))}
                   <div className="flex items-center justify-between py-3 font-semibold">
                     <dt>Total</dt>
-                    <dd className="num" data-testid="calc-total-row">
-                      {fmtInr(b.total)}
-                    </dd>
+                    <dd className="num">{fmtInr(b.total)}</dd>
                   </div>
                 </dl>
-                {mode === "advanced" ? (
-                  <p className="mt-2 rounded-2xl bg-white/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                    metal = {fmtNum(finePerGram!, 2)} ₹/g fine × {g} g × {purityByCode(purity).fineness}
-                    <br />
-                    duty = metal × {fmtNum(du * 100, 2)}% · making = {makingKind === "percent" ? `(metal + duty) × ${mk}%` : `${mk} ₹/g × ${g} g`}
-                    <br />
-                    GST = (metal + duty + making) × {fmtNum(gs * 100, 2)}%
-                  </p>
-                ) : null}
               </>
             ) : null}
-            <p className="mt-4 text-xs leading-relaxed text-muted-foreground">An estimate for comparison, not a quote. Real prices also include the dealer’s premium or discount to parity, which varies daily.</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">An estimate from today’s 24K rate. A jeweller’s own rate, wastage charges and hallmarking fees can change the final bill.</p>
           </div>
         </Card>
       </div>
