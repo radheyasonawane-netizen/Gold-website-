@@ -1,40 +1,25 @@
-# Kanchan · Today’s Gold Rate in India
+# Kanchan · MCX Gold Ten Price
 
-A one-page site, built with Next.js 15, React 19, TypeScript, Tailwind CSS v4 and shadcn/ui (Radix), that shows:
+A one-page site (Next.js 15, React 19, TypeScript, Tailwind CSS v4, shadcn/ui) that shows the **MCX Gold Ten futures price, ₹ per 10 g, exactly as the exchange quotes it**: last traded price, day change, open, high, low, close, volume, open interest and last-trade time. No GST, no margins, no added totals.
 
-* **Today’s 24K gold rate including 3% GST** (per gram and per 10 g), the rate excluding GST, the GST amount and the sell-back rate, refreshed from OroPocket every few minutes with a freshness badge and IST timestamps
-* **Rate by purity** (24K / 22K / 18K, plus silver per kg), all including GST
-* **10 g gold coin comparison** across ten Indian brands: Tanishq, Kalyan, Malabar, Joyalukkas, MMTC-PAMP, CaratLane, Senco, PN Gadgil, BlueStone and Augmont. You enter each brand’s price; the page normalises purity, ranks the coins and shows each one’s premium over today’s rate. Sortable table on desktop, cards on mobile.
-* **Calculator** for any weight and purity, with making charge and 3% GST
-* **Sources & formulas**
-
-Only Indian rupee rates are used, and no international prices or currency conversion. See [DATA_SOURCES.md](./DATA_SOURCES.md).
+Data comes from the **Groww Trade API** live-data quote (`exchange=MCX`, `segment=COMMODITY`). The nearest unexpired `GOLDTEN…FUT` contract is picked from Groww's instrument list and rolls over automatically. The access token stays on the server.
 
 ## Run
 
 ```bash
 npm install
-npm run dev                         # http://localhost:3000
-# behind an HTTPS proxy: NODE_USE_ENV_PROXY=1 npm run dev
+cp .env.example .env.local      # set GROWW_ACCESS_TOKEN
+npm run dev                     # http://localhost:3000
 ```
 
-## Structure
-
-```
-src/lib/server/oroPocket.ts   OroPocket adapter (validated, 2-min cache, last-good fallback ≤ 3 h)
-src/lib/server/market.ts      /api/rate payload + rates recorded by this server
-src/app/api/rate/route.ts     the only API route
-src/lib/calc.ts               GST, purity scaling, calculator, coin comparison maths
-src/lib/coins.ts              the ten brands, ordering
-src/components/site/*         rate hero, coin comparison, calculator, sources
-```
+If Groww refuses the request (for example 403 without an active Trading API subscription), the page says so and shows **no** price: there is no fallback or estimated value.
 
 ## Test
 
 ```bash
-npm test                                             # unit tests
+npm test                                   # unit: contract selection, quote parsing, cache
 npm run build && npm start &
-NODE_USE_ENV_PROXY=1 npm run e2e -- http://localhost:3000   # Playwright + axe
+npm run e2e -- http://localhost:3000       # Playwright + axe
 ```
 
-For information only, not investment advice.
+For information only, not investment advice. Groww's API terms allow use for yourself and your family only.

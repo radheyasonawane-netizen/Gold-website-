@@ -6,8 +6,8 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
-  title: "Kanchan · Today’s Gold Rate in India",
-  description: "Today’s 24K gold rate in India including 3% GST, rates by purity, and 10 g gold coin prices from ten brands compared.",
+  title: "Kanchan · MCX Gold Ten Price",
+  description: "The MCX Gold Ten futures price per 10 g, exactly as the exchange quotes it, without GST.",
 };
 
 export const viewport: Viewport = {
@@ -20,7 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en-IN">
       <body>
-        <a href="#rate" className="sr-only z-50 rounded-full bg-charcoal px-4 py-2 text-white focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
+        <a href="#price" className="sr-only z-50 rounded-full bg-charcoal px-4 py-2 text-white focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
           Skip to content
         </a>
         <Providers>{children}</Providers>

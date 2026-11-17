@@ -1,8 +1,6 @@
-import { SiteHeader, MobileDock } from "@/components/site/header";
-import { RateHero } from "@/components/site/rate-hero";
-import { CoinComparison } from "@/components/site/coin-comparison";
-import { PriceCalculator } from "@/components/site/calculator";
-import { Sources } from "@/components/site/sources";
+import { SiteHeader } from "@/components/site/header";
+import { McxPrice } from "@/components/site/mcx-price";
+import { McxSource } from "@/components/site/mcx-source";
 import { SiteFooter } from "@/components/site/footer";
 
 export default function Home() {
@@ -10,13 +8,10 @@ export default function Home() {
     <>
       <SiteHeader />
       <main>
-        <RateHero />
-        <CoinComparison />
-        <PriceCalculator />
-        <Sources />
+        <McxPrice />
+        <McxSource />
       </main>
       <SiteFooter />
-      <MobileDock />
     </>
   );
 }

@@ -1,42 +1,43 @@
-/** Shared API contracts between the route handlers and the client UI. */
+/** Shared API contracts between the route handler and the client UI. */
 
-export type FetchStatus = "live" | "stale" | "error";
+export type FetchStatus = "live" | "stale" | "error" | "unconfigured";
 
-/** One metal from OroPocket's published rates, ₹ per gram. */
-export interface OroMetalQuote {
-  /** Buy rate excluding GST. */
-  buy: number;
-  /** Sell-back rate (no GST on sells). */
-  sell: number;
-  /** GST amount per gram on a buy (3%). */
-  gst: number;
-  /** buy + gst: what a customer pays per gram. */
-  finalBuy: number;
-  change24hBuyPct: number | null;
-  change24hSellPct: number | null;
+/** The MCX Gold Ten futures contract being shown. */
+export interface GoldTenContract {
+  /** Groww trading symbol, e.g. GOLDTEN30NOV26FUT. */
+  tradingSymbol: string;
+  /** Contract expiry, YYYY-MM-DD. */
+  expiry: string;
 }
 
-export interface OroPocketQuote {
-  gold: OroMetalQuote;
-  silver: OroMetalQuote | null;
-  /** When OroPocket last refreshed its rates (ISO). */
-  timestamp: string;
-  /** OroPocket states its gold is 24K 99.9%. */
-  goldFineness: number;
+/** Fields exactly as returned by Groww's live-data quote API (₹ per 10 g, exchange price, no GST). */
+export interface GoldTenQuote {
+  lastPrice: number;
+  dayChange: number | null;
+  dayChangePct: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  /** Epoch ms of the last trade, from MCX via Groww. */
+  lastTradeTime: number | null;
+  volume: number | null;
+  openInterest: number | null;
 }
 
-export interface RateTick {
-  t: number; // OroPocket timestamp, epoch ms
-  finalBuy: number; // ₹/g incl. GST
+export interface PriceTick {
+  t: number; // last trade time, epoch ms
+  p: number; // last price
 }
 
-export interface RateResponse {
+export interface McxResponse {
   serverTime: string;
-  quote: OroPocketQuote | null;
+  contract: GoldTenContract | null;
+  quote: GoldTenQuote | null;
   status: FetchStatus;
-  /** When our server last fetched OroPocket successfully (ISO). */
+  /** When our server last fetched the quote successfully (ISO). */
   fetchedAt: string | null;
   error?: string;
-  /** Distinct OroPocket rates this server has seen (resets on restart). */
-  ticks: RateTick[];
+  /** Distinct trades this server has seen (resets on restart). */
+  ticks: PriceTick[];
 }

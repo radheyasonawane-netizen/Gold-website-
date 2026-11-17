@@ -1,29 +1,29 @@
 "use client";
 import * as React from "react";
-import type { RateResponse } from "@/lib/types";
+import type { McxResponse } from "@/lib/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-interface RateState {
-  data: RateResponse | null;
+interface McxState {
+  data: McxResponse | null;
   error: string | null;
   loading: boolean;
   refresh: () => void;
 }
-const RateCtx = React.createContext<RateState | null>(null);
-/** OroPocket refreshes about every 5 minutes; polling every 60 s keeps the page current. */
-const POLL_MS = 60_000;
+const McxCtx = React.createContext<McxState | null>(null);
+/** MCX trades continuously in session; the server caches Groww quotes for 15 s. */
+const POLL_MS = 15_000;
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [state, setState] = React.useState<Omit<RateState, "refresh">>({ data: null, error: null, loading: true });
+  const [state, setState] = React.useState<Omit<McxState, "refresh">>({ data: null, error: null, loading: true });
   const inflight = React.useRef(false);
   const load = React.useCallback(async () => {
     if (inflight.current) return;
     inflight.current = true;
     try {
-      const res = await fetch("/api/rate", { cache: "no-store" });
-      const json = (await res.json()) as Partial<RateResponse> & { error?: string };
+      const res = await fetch("/api/mcx", { cache: "no-store" });
+      const json = (await res.json()) as Partial<McxResponse> & { error?: string };
       if (!json.status) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setState({ data: json as RateResponse, error: json.quote ? null : (json.error ?? "Rate unavailable"), loading: false });
+      setState({ data: json as McxResponse, error: json.quote ? null : (json.error ?? "Price unavailable"), loading: false });
     } catch (e) {
       // Keep whatever was on screen; surface the error.
       setState((s) => ({ ...s, loading: false, error: e instanceof Error ? e.message : "Network error" }));
@@ -43,17 +43,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
     };
   }, [load]);
 
-  const value = React.useMemo<RateState>(() => ({ ...state, refresh: load }), [state, load]);
+  const value = React.useMemo<McxState>(() => ({ ...state, refresh: load }), [state, load]);
   return (
-    <RateCtx.Provider value={value}>
+    <McxCtx.Provider value={value}>
       <TooltipProvider>{children}</TooltipProvider>
-    </RateCtx.Provider>
+    </McxCtx.Provider>
   );
 }
 
-export function useRate() {
-  const v = React.useContext(RateCtx);
-  if (!v) throw new Error("useRate outside Providers");
+export function useMcx() {
+  const v = React.useContext(McxCtx);
+  if (!v) throw new Error("useMcx outside Providers");
   return v;
 }
 

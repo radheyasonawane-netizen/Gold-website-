@@ -1,12 +1,21 @@
 # DATA_SOURCES.md — Investigation & verified findings
 
-> **Current site (redesign, 17 Nov 2026):** Kanchan now uses **one data source, OroPocket's public
-> rate** (`api.oropocket.com/public/prices`), and shows only Indian rupee rates. International spot
-> (gold-api.com), ECB FX and World Bank history have been **removed** at the owner's request.
-> 10 g coin prices for ten brands are **entered by the user** (no brand offers a price API; brand
-> sites are not scraped). The sections below keep the original investigation for reference.
+> **Current site (17 Nov 2026, latest):** Kanchan shows **only the MCX Gold Ten futures price**
+> (₹ per 10 g, exchange price, no GST) via the **Groww Trade API**. The coin comparison, calculator,
+> GST totals and OroPocket rate have been removed at the owner's request.
 >
-> **Groww Trade API (reviewed 17 Nov 2026, not used):** needs a paid Trading API subscription and the
+> **Groww test results with the owner's access token (17 Nov 2026):**
+> * `GET /v1/user/detail` → `SUCCESS` (token valid). The account's `active_segments` is `["CASH"]` only.
+> * `GET /v1/live-data/quote` → **403 "Access forbidden for this request."** for MCX `GOLDTEN30NOV26FUT`
+>   (segment `COMMODITY`) **and** for NSE `GOLDBEES` (segment `CASH`), with both plain and SDK headers.
+>   So live market data isn't enabled for this account, most likely because no active Trading API
+>   subscription exists. Groww's docs also say MCX is "not available at this time".
+> * Groww's instrument list (`growwapi-assets.groww.in/instruments/instrument.csv`) **does** list
+>   `MCX,GOLDTEN30NOV26FUT,…,FUT,COMMODITY,…,GOLDTEN,…,2026-11-30`, which the site uses to pick the contract.
+> * Until Groww returns quotes, the page shows "The MCX price isn't available right now" with Groww's
+>   reason, and no substitute price.
+>
+> **Groww Trade API docs review:** needs a paid Trading API subscription and the
 > account holder's key (daily-approved access token or TOTP). Groww's REST docs state *"Commodities
 > trading (MCX segment) is not available at this time"*, and the SDK changelog notes an
 > "MCX-not-supported" doc update, so MCX gold quotes are not available through it. Its live data
